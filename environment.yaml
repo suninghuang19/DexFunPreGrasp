@@ -1,0 +1,15 @@
+name: pregrasp
+channels:
+  - nvidia/label/cuda-11.3.0
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - pip
+  - setuptools
+  - cython
+  - nvidia::cudatoolkit=11.3
+  - numpy
+  - pillow
+  - pytorch::pytorch=1.10.0
