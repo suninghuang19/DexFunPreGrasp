@@ -183,7 +183,7 @@ This project is released under the MIT license. See [LICENSE](LICENSE) for addit
 
 
 
-python src/train.py mode="eval" env_mode=pgm env_info=False num_envs=10 num_objects=2 num_objects_per_env=1 graphics_device_id=0 split='train' cluster=0 task.env.datasetMetainfoPath="data/oakink_filtered_metainfo.csv" task.env.datasetPoseLevelSampling=True --seed=0 --exp_name='PPO' --logdir='/home/hsn/Desktop/DexFunPreGrasp/log' --run_device_id=0 --web_visualizer_port=-1 --model_dir="/home/hsn/Desktop/DexFunPreGrasp/ckpt/pose-level-specialist-0.pt"
+python src/train.py mode="eval" env_mode=pgm env_info=False num_envs=16 num_objects=16 num_objects_per_env=1 graphics_device_id=0 split='train' cluster=10 task.env.datasetMetainfoPath="data/oakink_filtered_metainfo.csv" task.env.datasetPoseLevelSampling=True --seed=0 --exp_name='PPO' --run_device_id=0 --web_visualizer_port=-1 --model_dir="/home/hsn/Desktop/DexFunPreGrasp/ckpt/pose-level-specialist-10.pt" --logdir='/home/hsn/Desktop/DexFunPreGrasp/video'
 
 
 
