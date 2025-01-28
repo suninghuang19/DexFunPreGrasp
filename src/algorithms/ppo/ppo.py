@@ -719,8 +719,9 @@ class PPO:
 
                             print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                             # torch.Size([16, 26]) torch.Size([16]) torch.Size([16]) torch.Size([16, 208])
-                            print(step_actions.shape, rews.shape, dones.shape, next_obs["obs"].shape)
-                            exit()
+                            # print(step_actions.shape, rews.shape, dones.shape, next_obs["obs"].shape)
+                            # exit()
+                            # print(rews, dones)
 
                             if plot_direction:
                                 arm_diff_direction.append(

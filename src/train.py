@@ -205,21 +205,21 @@ if __name__ == "__main__":
     )  # preview 3 and 4 use the same loader
 
 
-    # input with random action
-    env.reset_arm()
-    num = 0
-    while True:
-        # episode length 300
-        # obs space (env, 208)
-        # action space (env, 26)
-        import torch
-        action = torch.rand((1, 26), device=rl_device) * 2 - 1# * 0
-        action[:, :6] = 0.0
-        obs, reward, done, info = env.step(action)
-        print(f"reward: {reward}")
-        print(f"done: {done}")
-        print(num)
-        num += 1
+    # # input with random action
+    # env.reset_arm()
+    # num = 0
+    # while True:
+    #     # episode length 300
+    #     # obs space (env, 208)
+    #     # action space (env, 26)
+    #     import torch
+    #     action = torch.rand((1, 26), device=rl_device) * 2 - 1# * 0
+    #     action[:, :6] = 0.0
+    #     obs, reward, done, info = env.step(action)
+    #     print(f"reward: {reward}")
+    #     print(f"done: {done}")
+    #     print(num)
+    #     num += 1
         
 
 

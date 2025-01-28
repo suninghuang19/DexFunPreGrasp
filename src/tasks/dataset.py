@@ -116,7 +116,7 @@ class OakInkDataset(FunctionalGraspingDataset):
             self.object_cat = "all"
 
         print("length of metainfo after filtering: ", len(metainfo))
-        print(metainfo)
+        # print(metainfo)
 
         for index, row in metainfo.iterrows():
             code, filepath = row["code"], row["filepath"]

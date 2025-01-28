@@ -1131,13 +1131,20 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
                 self.shadow_hand_center_positions,
             )
 
+        # get current object pose w.r.t. palm
         self.object_orientations_wrt_palm, self.object_positions_wrt_palm = compute_relative_pose(
+            # obj pose w.r.t. world
             self.object_root_orientations,
             self.object_root_positions,
+            # shadow hand pose w.r.t. world
             self.shadow_hand_center_orientations,
             self.shadow_hand_center_positions,
         )
-
+        # print("#####################################################")
+        # print(self.object_root_positions, self.shadow_hand_center_positions, self.object_root_orientations, self.shadow_hand_center_orientations)
+        # import time
+        # time.sleep(0.5)
+        
         if self.render_target:
             self.target_object_root_states = self.root_states[self.target_occupied_object_indices]
             self.target_object_root_positions = self.target_object_root_states[..., 0:3]
@@ -2262,6 +2269,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
         return num_bodies, num_shapes
 
+    # CREATE_ENVS
     def _create_envs(self, num_envs: int, spacing: float, num_objects_per_env: int = 1):
         print(">>> Setting up %d environments" % num_envs)
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
@@ -2515,7 +2523,8 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         """
         self._refresh_sim_tensors()
 
-        observations = OrderedDict()
+        observations = OrderedDict()        
+        
         for spec in self._observation_space_extra:
             observation: torch.Tensor = getattr(self, spec.attr)
 
@@ -2574,7 +2583,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         #     self.object_orientations_wrt_palm.clone(), self._r_target_object_orientations_wrt_palm.clone()
         # )
         self.rot_dist = quat_diff_rad(self.object_orientations_wrt_palm, self._r_target_object_orientations_wrt_palm)
-
+        print("rot_dist: ", self.rot_dist)
         if self.relative_part_reward:
             no_prev_dist_ids = torch.where(self.prev_rot_dist == -1)[0]
             self.prev_rot_dist[no_prev_dist_ids] = self.rot_dist[no_prev_dist_ids].clone()
@@ -2602,8 +2611,9 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         # print("object_positions_wrt_palm: ", self.object_positions_wrt_palm)
         # exit()
 
+        # originally, compute pose relative to palm
         self.pos_dist = F.pairwise_distance(self.object_positions_wrt_palm, self._r_target_object_positions_wrt_palm)
-
+        print("pos_dist: ", self.pos_dist)
         if self.relative_part_reward:
             no_prev_dist_ids = torch.where(self.prev_pos_dist == -1)[0]
             self.prev_pos_dist[no_prev_dist_ids] = self.pos_dist[no_prev_dist_ids].clone()
@@ -3265,7 +3275,9 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         # random sample grasp example
         object_indices = self.object_encodings[env_ids, occupied_object_indices]
         examples = self.grasping_dataset.sample(object_indices)
+        # shadow hand pose when grasp
         joints = examples["joints"]
+        # object pose relative to palm if success
         poses = examples["pose"]
         pointclouds = examples["pointcloud"]
         sample_indices = examples["index"]
@@ -3336,11 +3348,6 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         # key part
         object_positions_wrt_palm = poses[:, 0:3]
         object_orientations_wrt_palm = poses[:, 3:7]
-        
-        # print("#"*20)
-        # print("target object pose")
-        # print(poses[:10, :7])
-        # exit()
 
         palm_orientations_wrt_object, palm_positions_wrt_object = transformation_inverse(
             object_orientations_wrt_palm, object_positions_wrt_palm
@@ -3355,13 +3362,11 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         )
 
         ii, jj = torch.meshgrid(env_ids, self.grasping_joint_indices[2:], indexing="ij")
-        self._r_target_object_positions_wrt_palm[env_ids] = poses[:, 0:3]
-        self._r_target_object_orientations_wrt_palm[env_ids] = poses[:, 3:7]
+        # object relative pose to palm if success
+        self._r_target_object_positions_wrt_palm[env_ids] = object_positions_wrt_palm
+        self._r_target_object_orientations_wrt_palm[env_ids] = object_orientations_wrt_palm
         
-        # print("target object pose")
-        # print(self._r_target_object_positions_wrt_palm[:10, :7])
-        # exit()
-        
+        # shadowhand joint pos after retargeting from humand hand to shadow hand
         self._r_target_shadow_dof_positions[ii, jj] = joints[:, 2:]
         self._r_target_object_root_orientations[env_ids] = object_orientation
         self._r_target_object_root_positions[env_ids] = object_position
@@ -3410,16 +3415,19 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         self.prev_targets[env_ids] = dof_init_positions
         self.curr_targets[env_ids] = dof_init_positions
 
-        # random object orientation
+        # Inject noise to object orientation (RESPONSIBLE FOR RANDOM OBJECT ORIENTATION INITIALIZATION)
         if self.reset_obj_ori_noise > 0:
             occupied_object_init_root_orientation = random_orientation_within_angle(
                 num_reset_envs, self.device, object_orientation, self.reset_obj_ori_noise / (180 / torch.pi)
             )
         else:
             occupied_object_init_root_orientation = random_orientation(num_reset_envs, self.device)
+            # change no random now! handle is face to the robot
+            occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
 
-        nominal_mask = torch.rand(num_reset_envs, device=self.device) < self.nominal_env_ratio
-        occupied_object_init_root_orientation[nominal_mask] = self._object_nominal_orientation.clone()
+        # change
+        # nominal_mask = torch.rand(num_reset_envs, device=self.device) < self.nominal_env_ratio
+        # occupied_object_init_root_orientation[nominal_mask] = self._object_nominal_orientation.clone()
 
         # Compute statastics of object pointclouds
         pointclouds_wrt_world = quat_rotate(occupied_object_init_root_orientation[:, None, :], pointclouds)
@@ -3433,11 +3441,12 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         self.object_bboxes[env_ids] = bbox.clone()
         self.object_categories[env_ids] = onehot.clone()
 
-        # Inject noise to object position
+        # Inject noise to object position (RESPONSIBLE FOR RANDOM OBJECT POSITION INITIALIZATION)
         _bound_x: torch.Tensor = self._table_x_length / 2 - obj_max_length
-        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device)
+        # change no random now! mug is in the middle of the table
+        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device) * 0# + _bound_x
         _bound_y: torch.Tensor = self._table_y_length / 2 - obj_max_length
-        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device)
+        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device) * 0# - _bound_y
         occupied_object_init_z = self._object_z - obj_min_z
         occupied_object_init_root_position = (
             torch.stack([occupied_object_init_x, occupied_object_init_y, occupied_object_init_z], dim=1)
@@ -3876,6 +3885,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             len(occupied_object_indices),
         )
 
+    # @@@@@@@@@@@@@@@@@@@@@@@@@ important test example
     def lift_test(self, env_ids, close_dis=0.1, close_dof_indices=None, only_evaluate_height=False):
         # TODO: finger will lose during the lifting?
         # generate stable grasp
