@@ -145,7 +145,6 @@ class AggregateTracker:
         self.aggregate_bodies += bodies
         self.aggregate_shapes += shapes
 
-
 class ShadowHandFunctionalManipulationUnderarm(VecTask):
     # constants
     _asset_root: os.PathLike = os.path.join(os.path.dirname(find_dotenv()), "assets")
@@ -2102,6 +2101,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
     def __create_functional_grasping_dataset(self, device=None) -> None:
         # load the functional grasping dataset (shadow hand dofs + object pose)
+        # print("! Loading functional grasping dataset: ", self._data_root, self.dataset_dir)
         self.grasping_dataset = OakInkDataset(
             os.path.join(self._data_root, self.dataset_dir),
             device=device,
@@ -2597,6 +2597,10 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
         # print(self.pos_dist)
         # print(F.pairwise_distance(self.object_positions_wrt_palm, self._r_target_object_positions_wrt_palm))
+
+        # print("target_object_positions_wrt_palm: ", self._r_target_object_positions_wrt_palm)
+        # print("object_positions_wrt_palm: ", self.object_positions_wrt_palm)
+        # exit()
 
         self.pos_dist = F.pairwise_distance(self.object_positions_wrt_palm, self._r_target_object_positions_wrt_palm)
 
@@ -3329,8 +3333,14 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         shadow_hand_root_position = self._target_hand_palm_pose[:3].reshape(-1, 3).repeat(num_reset_envs, 1)
         shadow_hand_root_orientation = self._target_hand_palm_pose[3:7].reshape(-1, 4).repeat(num_reset_envs, 1)
 
+        # key part
         object_positions_wrt_palm = poses[:, 0:3]
         object_orientations_wrt_palm = poses[:, 3:7]
+        
+        # print("#"*20)
+        # print("target object pose")
+        # print(poses[:10, :7])
+        # exit()
 
         palm_orientations_wrt_object, palm_positions_wrt_object = transformation_inverse(
             object_orientations_wrt_palm, object_positions_wrt_palm
@@ -3347,6 +3357,11 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         ii, jj = torch.meshgrid(env_ids, self.grasping_joint_indices[2:], indexing="ij")
         self._r_target_object_positions_wrt_palm[env_ids] = poses[:, 0:3]
         self._r_target_object_orientations_wrt_palm[env_ids] = poses[:, 3:7]
+        
+        # print("target object pose")
+        # print(self._r_target_object_positions_wrt_palm[:10, :7])
+        # exit()
+        
         self._r_target_shadow_dof_positions[ii, jj] = joints[:, 2:]
         self._r_target_object_root_orientations[env_ids] = object_orientation
         self._r_target_object_root_positions[env_ids] = object_position

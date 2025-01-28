@@ -68,10 +68,11 @@ class OakInkDataset(FunctionalGraspingDataset):
         self.original_category_statistics = json.load(open(original_categories_statistics_path, "r"))
 
         category_dict = np.load("./data/category.npy", allow_pickle=True).tolist()
-        num_full_categories = len(set(category_dict.values()))
+        num_full_categories = len(set(category_dict.values())) # 47
         category_matrix = torch.eye(num_full_categories)
 
         metainfo: pd.DataFrame = pd.read_csv(metainfo_path)
+        print("length of metainfo before filtering: ", len(metainfo))
 
         # filter invalid codes
         if os.path.exists(skipcode_path):
@@ -81,6 +82,8 @@ class OakInkDataset(FunctionalGraspingDataset):
         else:
             warnings.warn("Skipcode file not found, skipping invalid code filtering")
 
+        print("length of metainfo after filtering invalid codes: ", len(metainfo))
+
         # filter grasping poses
         for key, candidates in queries.items():
             if isinstance(candidates, list) or isinstance(candidates, ListConfig):
@@ -88,15 +91,21 @@ class OakInkDataset(FunctionalGraspingDataset):
             elif candidates is not None:
                 metainfo = metainfo[metainfo[key] == candidates]
 
+        print("length of metainfo after filtering grasping poses: ", len(metainfo))
+
         if num_object_per_category != -1:
             instances = metainfo[["category", "code"]].drop_duplicates()
             instances = instances.groupby("category")["code"].head(num_object_per_category)
             metainfo = metainfo[metainfo["code"].isin(instances.values)]
 
+        print("length of metainfo after filtering per category: ", len(metainfo))
+
         if num_object != -1:
             instances = metainfo["code"].drop_duplicates()
             instances = instances.sample(min(num_object, instances.shape[0]), random_state=42)
             metainfo = metainfo[metainfo["code"].isin(instances.values)]
+        
+        print("length of metainfo after filtering duplicates: ", len(metainfo))
 
         if "category" in queries:
             if isinstance(queries["category"], list) or isinstance(queries["category"], ListConfig):
@@ -106,9 +115,11 @@ class OakInkDataset(FunctionalGraspingDataset):
         else:
             self.object_cat = "all"
 
+        print("length of metainfo after filtering: ", len(metainfo))
+        print(metainfo)
+
         for index, row in metainfo.iterrows():
             code, filepath = row["code"], row["filepath"]
-
             with open(filepath, "r") as f:
                 data = json.load(f)
 
@@ -137,8 +148,8 @@ class OakInkDataset(FunctionalGraspingDataset):
         if precomputed_sdf:
             self._sdf_fields = torch.zeros(self.num_objects, 200, 200, 200, device="cpu")
 
-        print(f"Total number of samples: {self.num_samples}")
-        print(f"Total number of objects: {self.num_objects}")
+        # print(f"Total number of samples: {self.num_samples}")
+        # print(f"Total number of objects: {self.num_objects}")
 
         index = 0
         for cur, code in enumerate(self.data):
@@ -176,6 +187,8 @@ class OakInkDataset(FunctionalGraspingDataset):
             self.obj_pcl_buf_all = pickle.load(f)
 
         for i, code in enumerate(self.object_codes):
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", i, code)
+            # exit()
             self._pointclouds[i] = torch.from_numpy(self.obj_pcl_buf_all[code]).float().to(self.device)
             self._category_matrix[i] = category_matrix[category_dict[code]]
             if precomputed_sdf:

@@ -102,17 +102,16 @@ def parse_hydra_config(
     hydra_object = Hydra.create_main_hydra2(task_name="load_isaacgymenv", config_search_path=search_path)
     config = hydra_object.compose_config(config_file, args.overrides, run_mode=RunMode.RUN)
 
-    # print config
-    if show_cfg:
-        print("\nIsaac Gym environment ({})".format(config.task.name))
-        print_cfg(omegaconf_to_dict(config.task))
+    # # print config
+    # if show_cfg:
+    #     print("\nIsaac Gym environment ({})".format(config.task.name))
+    #     print_cfg(omegaconf_to_dict(config.task))
 
     return config
 
 
 def create_env_from_config(config: OmegaConf) -> VecTask:
     cfg = omegaconf_to_dict(config.task)
-
     try:
         env = isaacgym_task_map[config.task.name](
             cfg=cfg,
@@ -121,6 +120,10 @@ def create_env_from_config(config: OmegaConf) -> VecTask:
             headless=config.headless,
         )
     except TypeError as e:
+        # THIS IS THE ONE BEING USED!!!!!!!!!!!!!!!!!!!1
+        # print("!!!!!!!!!!!!!!!!!!!!", config.task.name)
+        # print(cfg)
+        # exit()
         env = isaacgym_task_map[config.task.name](
             cfg=cfg,
             rl_device=config.rl_device,
@@ -130,7 +133,6 @@ def create_env_from_config(config: OmegaConf) -> VecTask:
             virtual_screen_capture=config.capture_video,  # TODO: check
             force_render=config.force_render,
         )
-
     return env
 
 

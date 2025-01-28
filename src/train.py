@@ -139,15 +139,15 @@ if __name__ == "__main__":
             obs_space = [
                 # "shadow_hand_position",
                 # "shadow_hand_orientation",
-                "ur_endeffector_position",
+                "ur_endeffector_position", # robot arm
                 "ur_endeffector_orientation",
-                "shadow_hand_dof_position",
+                "shadow_hand_dof_position", # shadow hand
                 "shadow_hand_dof_velocity",
                 "fingertip_position_wrt_palm",
                 "fingertip_orientation_wrt_palm",
                 "fingertip_linear_velocity",
                 "fingertip_angular_velocity",
-                "object_position_wrt_palm",
+                "object_position_wrt_palm", # object
                 "object_orientation_wrt_palm",
                 "object_position",
                 "object_orientation",
@@ -198,11 +198,34 @@ if __name__ == "__main__":
     args.overrides.append(f"rl_device={rl_device}")
     args.overrides.append(f"obs_space={obs_space}")
     args.overrides.append(f"action_space={action_space}")
+    
     # Load and wrap the Isaac Gym environment
     env = load_isaacgym_env(
         task_name="ShadowHandFunctionalManipulationUnderarm", args=args
     )  # preview 3 and 4 use the same loader
-    # env = wrap_env(env)
+
+
+    # input with random action
+    env.reset_arm()
+    num = 0
+    while True:
+        # episode length 300
+        # obs space (env, 208)
+        # action space (env, 26)
+        import torch
+        action = torch.rand((1, 26), device=rl_device) * 2 - 1# * 0
+        action[:, :6] = 0.0
+        obs, reward, done, info = env.step(action)
+        print(f"reward: {reward}")
+        print(f"done: {done}")
+        print(num)
+        num += 1
+        
+
+
+
+
+
     """
     load agent
     """
