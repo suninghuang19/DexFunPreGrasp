@@ -237,51 +237,86 @@ if __name__ == "__main__":
 
     # input with random action
     env.reset_arm()
+    
+    # # time delay part
     # num = 0
     # while num < 20:
     #     # episode length 300
     #     # obs space (env, 208)
     #     # action space (env, 26)
-    #     import torch
     #     action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
-    #     # action[:, :3] = 0.1
     #     obs, reward, done, info = env.step(action)
     #     import time
     #     time.sleep(0.5)
-    #     # print(f"reward: {reward}")
-    #     # print(f"done: {done}")
     #     print(num)
-    #     # print(env.endeffector_positions)
     #     num += 1
     
-    # print("object now: ")
-    # print(env.object_root_positions, env.object_root_orientations)
-    # print("hand now: ")
-    # print(env.shadow_hand_center_positions, env.shadow_hand_center_orientations)
-    # print("target:")
-    # print(env._r_target_palm_positions_wrt_object)
-    # exit()
+    # test finger actuator
+    num = 1
+    i = 0
+    while True:
+        action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
+        import numpy as np
+        if num % 200 == 0:
+            i += 1
+        action[0, 6+i] = np.sin(num / 10)
+        obs, reward, done, info = env.step(action)
+        print(num)
+        num += 1    
 
-    for j in range(100):
-        print(j)
+
+    # ******************************************
+    # env.object_root_positions
+    # env.object_root_orientations
+    # env.shadow_hand_center_positions
+    # env.shadow_hand_center_orientations
+    
+    # env._r_target_palm_positions_wrt_object[env_ids]
+    # env._r_target_palm_orientations_wrt_object[env_ids]
+
+    # env.palm_positions_wrt_object
+    # env.palm_orientations_wrt_object
+
+    # env.endeffector_positions
+    # env.endeffector_orientations
+
+    delta = 0.1
+    max_ik_steps = 1
+    env_ids = torch.tensor([0], device=rl_device)
+    target_palm_positions_wrt_object = env._r_target_palm_positions_wrt_object[env_ids]
+    target_palm_orientations_wrt_object = env._r_target_palm_orientations_wrt_object[env_ids]
+    current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
+    current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
+    initial_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+    for i in range(100000):
+        print(f"grasping step: {i}")
+        print("target pos: {}, current pos: {}".format(target_palm_positions_wrt_object, env.palm_positions_wrt_object[env_ids]))
+        print("target ori: {}, current ori: {}".format(target_palm_orientations_wrt_object, env.palm_orientations_wrt_object[env_ids]))
+        current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
+        current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
+        diff_pos = target_palm_positions_wrt_object - current_palms_positions_wrt_object
+        diff_ori = target_palm_orientations_wrt_object - current_palms_orientations_wrt_object
+        
         current_pos = env.endeffector_positions
-        target_pos = current_pos.clone()
-        target_pos[:, 0] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
-        target_pos[:, 1] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
-        target_pos[:, 2] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
+        current_ori = env.endeffector_orientations
+        target_pos = current_pos + delta * diff_pos
+        target_ori = current_ori + delta * diff_ori
 
-        for i in range(100):
+        current_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+
+        for _ in range(int(1 + max_ik_steps * current_distance / initial_distance)):
             delta_joint_move = ik(
                 env.j_eef,
-                env.endeffector_positions,
-                env.endeffector_orientations,
+                # current_pos,
+                current_pos,
+                current_ori,
+                # target_pos,
                 target_pos,
-                env.endeffector_orientations,
+                target_ori,
             )
             delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
-
             targets = env.shadow_hand_dof_positions.clone()
-            ii, jj = torch.meshgrid(torch.tensor([0], device=rl_device), env.ur_actuated_dof_indices, indexing="ij")
+            ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
             env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
             indices = torch.unique(
                 torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
@@ -293,14 +328,13 @@ if __name__ == "__main__":
                 indices.shape[0],
             )
             # step physics and render each frame
-            for i in range(env.control_freq_inv):
+            for _ in range(env.control_freq_inv):
                 if env.force_render:
                     env.render()
                 env.gym.simulate(env.sim)
 
             env._refresh_sim_tensors()
-            # print(i, env.endeffector_positions)
-        
+    
     exit()
     
     
