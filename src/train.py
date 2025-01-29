@@ -237,22 +237,22 @@ if __name__ == "__main__":
 
     # input with random action
     env.reset_arm()
-    num = 0
-    while num < 20:
-        # episode length 300
-        # obs space (env, 208)
-        # action space (env, 26)
-        import torch
-        action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
-        # action[:, :3] = 0.1
-        obs, reward, done, info = env.step(action)
-        import time
-        time.sleep(0.5)
-        # print(f"reward: {reward}")
-        # print(f"done: {done}")
-        print(num)
-        # print(env.endeffector_positions)
-        num += 1
+    # num = 0
+    # while num < 20:
+    #     # episode length 300
+    #     # obs space (env, 208)
+    #     # action space (env, 26)
+    #     import torch
+    #     action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
+    #     # action[:, :3] = 0.1
+    #     obs, reward, done, info = env.step(action)
+    #     import time
+    #     time.sleep(0.5)
+    #     # print(f"reward: {reward}")
+    #     # print(f"done: {done}")
+    #     print(num)
+    #     # print(env.endeffector_positions)
+    #     num += 1
     
     # print("object now: ")
     # print(env.object_root_positions, env.object_root_orientations)
@@ -262,40 +262,44 @@ if __name__ == "__main__":
     # print(env._r_target_palm_positions_wrt_object)
     # exit()
 
-    current_pos = env.endeffector_positions
-    target_pos = current_pos.clone()
-    target_pos[:, 2] += 0.3
+    for j in range(100):
+        print(j)
+        current_pos = env.endeffector_positions
+        target_pos = current_pos.clone()
+        target_pos[:, 0] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
+        target_pos[:, 1] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
+        target_pos[:, 2] += (torch.rand(1, device=rl_device) * 2 - 1) * 0.1
 
-    for i in range(100):
-        delta_joint_move = ik(
-            env.j_eef,
-            env.endeffector_positions,
-            env.endeffector_orientations,
-            target_pos,
-            env.endeffector_orientations,
-        )
-        delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
+        for i in range(100):
+            delta_joint_move = ik(
+                env.j_eef,
+                env.endeffector_positions,
+                env.endeffector_orientations,
+                target_pos,
+                env.endeffector_orientations,
+            )
+            delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
 
-        targets = env.shadow_hand_dof_positions.clone()
-        ii, jj = torch.meshgrid(torch.tensor([0], device=rl_device), env.ur_actuated_dof_indices, indexing="ij")
-        env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
-        indices = torch.unique(
-            torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-        )
-        env.gym.set_dof_position_target_tensor_indexed(
-            env.sim,
-            gymtorch.unwrap_tensor(env.curr_targets_buffer),
-            gymtorch.unwrap_tensor(indices),
-            indices.shape[0],
-        )
-        # step physics and render each frame
-        for i in range(env.control_freq_inv):
-            if env.force_render:
-                env.render()
-            env.gym.simulate(env.sim)
+            targets = env.shadow_hand_dof_positions.clone()
+            ii, jj = torch.meshgrid(torch.tensor([0], device=rl_device), env.ur_actuated_dof_indices, indexing="ij")
+            env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
+            indices = torch.unique(
+                torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
+            )
+            env.gym.set_dof_position_target_tensor_indexed(
+                env.sim,
+                gymtorch.unwrap_tensor(env.curr_targets_buffer),
+                gymtorch.unwrap_tensor(indices),
+                indices.shape[0],
+            )
+            # step physics and render each frame
+            for i in range(env.control_freq_inv):
+                if env.force_render:
+                    env.render()
+                env.gym.simulate(env.sim)
 
-        env._refresh_sim_tensors()
-        print(i, env.endeffector_positions)
+            env._refresh_sim_tensors()
+            # print(i, env.endeffector_positions)
         
     exit()
     
