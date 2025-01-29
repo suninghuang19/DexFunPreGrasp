@@ -2441,7 +2441,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         self.shadow_hand_rigid_body_end = (
             self.shadow_hand_rigid_body_start + self.gym_assets["current"]["robot"]["num_rigid_bodies"]
         )
-
+        print(">>>>>>>>>>>>>>>>>>>>>>>", self.render_target)
         if self.render_target:
             self.target_shadow_hand_dof_start = self.gym.get_actor_dof_index(
                 env, target_shadow_hand, 0, gymapi.DOMAIN_ENV
@@ -2583,7 +2583,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         #     self.object_orientations_wrt_palm.clone(), self._r_target_object_orientations_wrt_palm.clone()
         # )
         self.rot_dist = quat_diff_rad(self.object_orientations_wrt_palm, self._r_target_object_orientations_wrt_palm)
-        print("rot_dist: ", self.rot_dist)
+        # print("rot_dist: ", self.rot_dist)
         if self.relative_part_reward:
             no_prev_dist_ids = torch.where(self.prev_rot_dist == -1)[0]
             self.prev_rot_dist[no_prev_dist_ids] = self.rot_dist[no_prev_dist_ids].clone()
@@ -2613,7 +2613,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
         # originally, compute pose relative to palm
         self.pos_dist = F.pairwise_distance(self.object_positions_wrt_palm, self._r_target_object_positions_wrt_palm)
-        print("pos_dist: ", self.pos_dist)
+        # print("pos_dist: ", self.pos_dist)
         if self.relative_part_reward:
             no_prev_dist_ids = torch.where(self.prev_pos_dist == -1)[0]
             self.prev_pos_dist[no_prev_dist_ids] = self.pos_dist[no_prev_dist_ids].clone()
