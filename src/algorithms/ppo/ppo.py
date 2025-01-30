@@ -717,7 +717,7 @@ class PPO:
                                 self.vec_env.action_gf = grad.clone()
                             next_obs, rews, dones, infos = self.vec_env.step(step_actions)
 
-                            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                            # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
                             # torch.Size([16, 26]) torch.Size([16]) torch.Size([16]) torch.Size([16, 208])
                             # print(step_actions.shape, rews.shape, dones.shape, next_obs["obs"].shape)
                             # exit()

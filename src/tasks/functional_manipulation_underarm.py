@@ -2640,7 +2640,6 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         Returns:
             Tensor: The minimum distance. (num_envs, num_object_points)
         """
-
         if batch_size >= self.num_envs:
             contract_dist = torch.cdist(obj_pcl, hand_pcl).min(dim=-1)[0]
         else:
@@ -2724,10 +2723,14 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
     def compute_contact_reward(self, mutual=False):
         # fingerjoint error
+        # USE THIS REWARD FOT FINGER
+        # print("##################################")
         self.fj_dist = F.pairwise_distance(
             self.shadow_hand_dof_positions[:, self.shadow_digits_actuated_dof_indices],
             self._r_target_shadow_digits_actuated_dof_positions,
         )
+        # print(self.shadow_hand_dof_positions[:, self.shadow_digits_actuated_dof_indices])
+        # print(self._r_target_shadow_digits_actuated_dof_positions)
         # print("object_targets")
         # print(self.object_targets.shape)
         # print(self.target_shadow_hand_dof_positions.shape)
@@ -3388,8 +3391,6 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             ii, jj
         ].clone()
 
-        # print(self._r_target_shadow_dof_positions.shape, self.target_shadow_hand_dof_positions.shape)
-
         if self.env_mode == "orn":
             self.object_targets[env_ids] = object_orientation.clone()
         elif self.env_mode == "relpose":
@@ -3949,7 +3950,8 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         print("lifted")
 
     # Visualization Utilities
-
+    # @@@@@@@@@@@@@@@@@@@@@@@@@ important test example
+    # USE TO CLOSE HAND!!!!!!!!!!
     def close(self, env_ids, close_dis=0.3, close_dof_indices=None, check_contact=False):
         for i in range(50):
             if i < 30:
