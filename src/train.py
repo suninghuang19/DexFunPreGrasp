@@ -238,18 +238,18 @@ if __name__ == "__main__":
     # input with random action
     env.reset_arm()
     
-    # time delay part
-    num = 0
-    while num < 20:
-        # episode length 300
-        # obs space (env, 208)
-        # action space (env, 26)
-        action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
-        obs, reward, done, info = env.step(action)
-        import time
-        time.sleep(0.5)
-        print(num)
-        num += 1
+    # # time delay part
+    # num = 0
+    # while num < 30:
+    #     # episode length 300
+    #     # obs space (env, 208)
+    #     # action space (env, 26)
+    #     action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
+    #     obs, reward, done, info = env.step(action)
+    #     import time
+    #     time.sleep(0.5)
+    #     print(num)
+    #     num += 1
     
     # # test finger actuator
     # num = 1
@@ -286,123 +286,127 @@ if __name__ == "__main__":
     # env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
     # env._r_target_shadow_digits_actuated_dof_positions,
 
-
-    delta = 0.1
-    max_ik_steps = 1
-    env_ids = torch.tensor([0], device=rl_device)
-
-    # dim=6
-    target_palm_positions_wrt_object = env._r_target_palm_positions_wrt_object[env_ids]
-    target_palm_orientations_wrt_object = env._r_target_palm_orientations_wrt_object[env_ids]    
-    current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
-    current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
-    initial_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+    # env._palm2forearm_quat
+    # env._palm2forearm_pos
     
-    for i in range(100):
-        print(f"moving step: {i}")
-        # print("target pos: {}, current pos: {}".format(target_palm_positions_wrt_object, env.palm_positions_wrt_object[env_ids]))
-        # print("target ori: {}, current ori: {}".format(target_palm_orientations_wrt_object, env.palm_orientations_wrt_object[env_ids]))
+    while True:
+        env.reset_arm()
+
+        delta = 0.1
+        max_ik_steps = 2
+        env_ids = torch.tensor([0], device=rl_device)
+
+        # dim=6
+        target_palm_positions_wrt_object = env._r_target_palm_positions_wrt_object[env_ids]
+        target_palm_orientations_wrt_object = env._r_target_palm_orientations_wrt_object[env_ids]
         current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
         current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
-        diff_pos = target_palm_positions_wrt_object - current_palms_positions_wrt_object
-        diff_ori = target_palm_orientations_wrt_object - current_palms_orientations_wrt_object
+        initial_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
         
-        current_pos = env.endeffector_positions
-        current_ori = env.endeffector_orientations
-        target_pos = current_pos + delta * diff_pos
-        target_ori = current_ori + delta * diff_ori
+        for i in range(150):
+            print(f"moving step: {i}")
+            # print("target pos: {}, current pos: {}".format(target_palm_positions_wrt_object, env.palm_positions_wrt_object[env_ids]))
+            # print("target ori: {}, current ori: {}".format(target_palm_orientations_wrt_object, env.palm_orientations_wrt_object[env_ids]))
+            current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
+            current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
+            diff_pos = (target_palm_positions_wrt_object - current_palms_positions_wrt_object)# * 0
+            diff_ori = target_palm_orientations_wrt_object - current_palms_orientations_wrt_object
+            
+            current_pos = env.endeffector_positions
+            current_ori = env.endeffector_orientations
+            target_pos = current_pos + delta * diff_pos
+            target_ori = current_ori + delta * diff_ori
 
-        current_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+            current_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
 
-        for j in range(int(1 + max_ik_steps * current_distance / initial_distance)):
-            delta_joint_move = ik(
-                env.j_eef,
-                # current_pos,
-                current_pos,
-                current_ori,
-                # target_pos,
-                target_pos,
-                target_ori,
-            )
-            delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
-            targets = env.shadow_hand_dof_positions.clone()
-            ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
-            env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
-            indices = torch.unique(
+            for j in range(int(1 + max_ik_steps * current_distance / initial_distance)):
+                delta_joint_move = ik(
+                    env.j_eef,
+                    # current_pos,
+                    current_pos,
+                    current_ori,
+                    # target_pos,
+                    target_pos,
+                    target_ori,
+                )
+                delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
+                targets = env.shadow_hand_dof_positions.clone()
+                ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
+                env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
+                indices = torch.unique(
+                    torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
+                )
+                env.gym.set_dof_position_target_tensor_indexed(
+                    env.sim,
+                    gymtorch.unwrap_tensor(env.curr_targets_buffer),
+                    gymtorch.unwrap_tensor(indices),
+                    indices.shape[0],
+                )
+
+                # step physics and render each frame
+                for _ in range(env.control_freq_inv):
+                    if env.force_render:
+                        env.render()
+                    env.gym.simulate(env.sim)
+
+                env._refresh_sim_tensors()
+
+        # dim=18
+        target_shadow_hand_dof_positions = env._r_target_shadow_digits_actuated_dof_positions[env_ids]
+        for i in range(50):
+            print("grasping step: {}".format(i))
+            current_shadow_hand_dof_positions = env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
+            delta_hand_joint_move = (target_shadow_hand_dof_positions - current_shadow_hand_dof_positions) * delta
+            hand_targets = env.shadow_hand_dof_positions.clone()
+            ii, jj = torch.meshgrid(env_ids, env.shadow_digits_actuated_dof_indices, indexing="ij")
+            env.curr_targets[ii, jj] = hand_targets[ii, jj] + delta_hand_joint_move
+            hand_indices = torch.unique(
                 torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
             )
             env.gym.set_dof_position_target_tensor_indexed(
                 env.sim,
                 gymtorch.unwrap_tensor(env.curr_targets_buffer),
-                gymtorch.unwrap_tensor(indices),
-                indices.shape[0],
+                gymtorch.unwrap_tensor(hand_indices),
+                hand_indices.shape[0],
             )
-
-            # step physics and render each frame
-            for _ in range(env.control_freq_inv):
-                if env.force_render:
-                    env.render()
-                env.gym.simulate(env.sim)
-
-            env._refresh_sim_tensors()
-
-    # dim=18
-    target_shadow_hand_dof_positions = env._r_target_shadow_digits_actuated_dof_positions[env_ids]
-    for i in range(100):
-        print("grasping step: {}".format(i))
-        current_shadow_hand_dof_positions = env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
-        delta_hand_joint_move = (target_shadow_hand_dof_positions - current_shadow_hand_dof_positions) * delta
-        hand_targets = env.shadow_hand_dof_positions.clone()
-        ii, jj = torch.meshgrid(env_ids, env.shadow_digits_actuated_dof_indices, indexing="ij")
-        env.curr_targets[ii, jj] = hand_targets[ii, jj] + delta_hand_joint_move
-        hand_indices = torch.unique(
-            torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-        )
-        env.gym.set_dof_position_target_tensor_indexed(
-            env.sim,
-            gymtorch.unwrap_tensor(env.curr_targets_buffer),
-            gymtorch.unwrap_tensor(hand_indices),
-            hand_indices.shape[0],
-        )
-        if env.force_render and i % 1 == 0:
-            env.render()
-        env.gym.simulate(env.sim)
-        env._refresh_sim_tensors()
-
-
-    current_pos = env.endeffector_positions.clone()
-    target_pos = current_pos.clone()
-    target_pos[:, 2] += 0.3
-    for i in range(100):
-        print("lifting step: {}".format(i))
-        delta_joint_move = ik(
-            env.j_eef,
-            env.endeffector_positions,
-            env.endeffector_orientations,
-            target_pos,
-            env.endeffector_orientations,
-        )
-        delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
-
-        targets = env.shadow_hand_dof_positions.clone()
-        ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
-        env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
-        indices = torch.unique(
-            torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-        )
-        env.gym.set_dof_position_target_tensor_indexed(
-            env.sim,
-            gymtorch.unwrap_tensor(env.curr_targets_buffer),
-            gymtorch.unwrap_tensor(indices),
-            indices.shape[0],
-        )
-        # step physics and render each frame
-        for i in range(env.control_freq_inv):
-            if env.force_render:
+            if env.force_render and i % 1 == 0:
                 env.render()
             env.gym.simulate(env.sim)
+            env._refresh_sim_tensors()
 
-        env._refresh_sim_tensors()
+
+        # current_pos = env.endeffector_positions.clone()
+        # target_pos = current_pos.clone()
+        # target_pos[:, 2] += 0.3
+        # for i in range(100):
+        #     print("lifting step: {}".format(i))
+        #     delta_joint_move = ik(
+        #         env.j_eef,
+        #         env.endeffector_positions,
+        #         env.endeffector_orientations,
+        #         target_pos,
+        #         env.endeffector_orientations,
+        #     )
+        #     delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt * 0.1
+
+        #     targets = env.shadow_hand_dof_positions.clone()
+        #     ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
+        #     env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
+        #     indices = torch.unique(
+        #         torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
+        #     )
+        #     env.gym.set_dof_position_target_tensor_indexed(
+        #         env.sim,
+        #         gymtorch.unwrap_tensor(env.curr_targets_buffer),
+        #         gymtorch.unwrap_tensor(indices),
+        #         indices.shape[0],
+        #     )
+        #     # step physics and render each frame
+        #     for i in range(env.control_freq_inv):
+        #         if env.force_render:
+        #             env.render()
+        #         env.gym.simulate(env.sim)
+        #     env._refresh_sim_tensors()
 
 
 

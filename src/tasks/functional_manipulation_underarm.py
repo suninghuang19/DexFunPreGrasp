@@ -3425,6 +3425,8 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             occupied_object_init_root_orientation = random_orientation(num_reset_envs, self.device)
             # change no random now! handle is face to the robot
             occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
+            num = np.random.uniform(0, 1)
+            occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, np.sin(num), np.cos(num)], device=self.device)
 
         # change
         # nominal_mask = torch.rand(num_reset_envs, device=self.device) < self.nominal_env_ratio
