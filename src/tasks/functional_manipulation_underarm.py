@@ -3425,8 +3425,10 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             occupied_object_init_root_orientation = random_orientation(num_reset_envs, self.device)
             # change no random now! handle is face to the robot
             occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
-            num = np.random.uniform(0, 1)
+            num = 0#np.random.uniform(0, 1)
             occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, np.sin(num), np.cos(num)], device=self.device)
+            # occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.707, 0, 0.707], device=self.device)
+            # occupied_object_init_root_orientation[0] = torch.tensor([-0.707, 0, 0, 0.707], device=self.device)
 
         # change
         # nominal_mask = torch.rand(num_reset_envs, device=self.device) < self.nominal_env_ratio
@@ -3447,9 +3449,9 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         # Inject noise to object position (RESPONSIBLE FOR RANDOM OBJECT POSITION INITIALIZATION)
         _bound_x: torch.Tensor = self._table_x_length / 2 - obj_max_length
         # change no random now! mug is in the middle of the table
-        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device) * 0# + _bound_x
+        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device)*0 # + _bound_x
         _bound_y: torch.Tensor = self._table_y_length / 2 - obj_max_length
-        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device) * 0# - _bound_y
+        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device)*0 # - _bound_y
         occupied_object_init_z = self._object_z - obj_min_z
         occupied_object_init_root_position = (
             torch.stack([occupied_object_init_x, occupied_object_init_y, occupied_object_init_z], dim=1)
