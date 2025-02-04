@@ -228,242 +228,347 @@ if __name__ == "__main__":
     )  # preview 3 and 4 use the same loader
 
 
-    # load object, hand and robot arm
-    # get target relative hand_obj pose
-    # use absolute object pose to calculate target arm pose
-    # calculate the relative movement of the hand
-    # use ik to move the arm
-    # grasp the object
 
-    # input with random action
-    env.reset_arm()
+
+    def slerp(q1, q2, t, DOT_THRESHOLD=0.9995):
+        """
+        对形状为 (B,4) 的批量四元数 q1 和 q2 进行球面线性插值（SLERP）。
+
+        参数：
+            q1 (torch.Tensor): 起始四元数，形状 (B, 4)。
+            q2 (torch.Tensor): 目标四元数，形状 (B, 4)。
+            t (float 或 torch.Tensor): 插值因子，范围 [0, 1]。若为标量，则对所有批次都使用同一插值因子；
+                                        若为张量，其形状应为 (B,) 或 (B,1)。
+            DOT_THRESHOLD (float): 当两个四元数内积大于此阈值时，采用线性插值（LERP）近似，防止数值不稳定。
+
+        返回：
+            torch.Tensor: 插值后的四元数，形状 (B, 4)，归一化为单位四元数。
+        """
+        # 归一化输入的四元数，保证是单位四元数
+        q1 = q1 / q1.norm(dim=1, keepdim=True)
+        q2 = q2 / q2.norm(dim=1, keepdim=True)
+
+        # 计算内积，形状 (B, 1)
+        dot = torch.sum(q1 * q2, dim=1, keepdim=True)
+
+        # 如果内积为负，则翻转 q2，保证两个四元数位于同一半空间，得到最短插值路径
+        q2 = torch.where(dot < 0, -q2, q2)
+        # 重新计算内积（取绝对值）
+        dot = torch.abs(torch.sum(q1 * q2, dim=1, keepdim=True))
+
+        # 确保 t 为张量，并扩展成形状 (B, 1)
+        if not torch.is_tensor(t):
+            t = torch.tensor(t, dtype=q1.dtype, device=q1.device)
+        if t.dim() == 0:
+            t = t.expand(q1.shape[0], 1)
+        elif t.dim() == 1:
+            t = t.unsqueeze(1)
+
+        # 对于内积大于阈值的部分，使用线性插值（LERP）近似
+        use_lerp = dot > DOT_THRESHOLD
+
+        # SLERP 部分：计算两个四元数之间的夹角
+        theta_0 = torch.acos(dot)          # shape: (B, 1)
+        sin_theta_0 = torch.sin(theta_0)     # shape: (B, 1)
+
+        # 插值角度 theta
+        theta = theta_0 * t                # shape: (B, 1)
+        sin_theta = torch.sin(theta)       # shape: (B, 1)
+
+        # 计算插值系数
+        s1 = torch.sin(theta_0 - theta) / sin_theta_0  # shape: (B, 1)
+        s2 = sin_theta / sin_theta_0                   # shape: (B, 1)
+
+        # SLERP 插值结果
+        slerp_result = s1 * q1 + s2 * q2  # shape: (B, 4)
+
+        # LERP 插值结果
+        lerp_result = q1 + t * (q2 - q1)
+        lerp_result = lerp_result / lerp_result.norm(dim=1, keepdim=True)
+
+        # 使用掩码决定对于哪些批次使用 LERP 插值
+        use_lerp_expanded = use_lerp.expand_as(slerp_result)
+        result = torch.where(use_lerp_expanded, lerp_result, slerp_result)
+
+        # 归一化最终结果
+        result = result / result.norm(dim=1, keepdim=True)
+        return result
     
-    # # time delay part
-    # num = 0
-    # while num < 30:
-    #     # episode length 300
-    #     # obs space (env, 208)
-    #     # action space (env, 26)
-    #     action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
-    #     obs, reward, done, info = env.step(action)
-    #     import time
-    #     time.sleep(0.5)
-    #     print(num)
-    #     num += 1
-    
-    # # test finger actuator
-    # num = 1
-    # i = 0
-    # while True:
-    #     action = (torch.rand((1, 26), device=rl_device) * 2 - 1) * 0
-    #     # import numpy as np
-    #     # if num % 200 == 0:
-    #     #     i += 1
-    #     # action[0, 0+i] = np.sin(num / 10)
-    #     action[0, 0] = 0.1
-    #     if num > 150:
-    #         action[0, 0] = 0
-    #     obs, reward, done, info = env.step(action)
-    #     print(num)
-    #     num += 1    
-
-
-    # #####################################################
-    # env.object_root_positions
-    # env.object_root_orientations
-    # env.shadow_hand_center_positions
-    # env.shadow_hand_center_orientations
-    
-    # env._r_target_palm_positions_wrt_object[env_ids]
-    # env._r_target_palm_orientations_wrt_object[env_ids]
-
-    # env.palm_positions_wrt_object
-    # env.palm_orientations_wrt_object
-
-    # env.endeffector_positions
-    # env.endeffector_orientations
-
-    # env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
-    # env._r_target_shadow_digits_actuated_dof_positions,
-
-    # env._palm2forearm_quat
-    # env._palm2forearm_pos
-    
-    while True:
-        env.reset_arm()
-
-        delta = 0.1
-        max_ik_steps = 2
-        env_ids = torch.tensor([0], device=rl_device)
-
-        # dim=6
-        target_palm_positions_wrt_object = env._r_target_palm_positions_wrt_object[env_ids]
-        target_palm_orientations_wrt_object = env._r_target_palm_orientations_wrt_object[env_ids]
-        current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
-        current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
-        initial_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+    def quaternion_mul(q, r):
+        """
+        对形状为 (bsz, 4) 的四元数 q 和 r 进行乘法运算，
+        假设四元数格式为 [x, y, z, w]。
+        """
+        # 提取各分量
+        x1, y1, z1, w1 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+        x2, y2, z2, w2 = r[:, 0], r[:, 1], r[:, 2], r[:, 3]
         
-        for i in range(70):
-            print(f"moving step: {i}")
-            # print("target pos: {}, current pos: {}".format(target_palm_positions_wrt_object, env.palm_positions_wrt_object[env_ids]))
-            # print("target ori: {}, current ori: {}".format(target_palm_orientations_wrt_object, env.palm_orientations_wrt_object[env_ids]))
-            current_palms_positions_wrt_object = env.palm_positions_wrt_object[env_ids]
-            current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[env_ids]
-            diff_pos = (target_palm_positions_wrt_object - current_palms_positions_wrt_object)# * 0
-            diff_ori = target_palm_orientations_wrt_object - current_palms_orientations_wrt_object
+        # 根据四元数乘法公式计算各分量
+        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+        y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+        z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+        
+        return torch.stack([x, y, z, w], dim=1)
+
+    def quaternion_conjugate(q):
+        """
+        计算一批四元数的共轭。
+        
+        参数:
+            q: numpy 数组，形状 (B, 4)，格式为 [x, y, z, w]
+        
+        返回:
+            共轭后的四元数，形状 (B, 4)，即 [-x, -y, -z, w]
+        """
+        x, y, z, w = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+        return torch.stack([-x, -y, -z, w], dim=1)
+
+    def rotate_vector_by_quaternion(v, q):
+        """
+        利用批量单位四元数 q 对批量三维向量 v 进行旋转。
+        
+        参数:
+            v: numpy 数组，形状为 (B, 3)，表示 B 个三维向量。
+            q: numpy 数组，形状为 (B, 4)，表示 B 个单位四元数，格式为 [x, y, z, w].
+        
+        返回:
+            rotated_v: numpy 数组，形状为 (B, 3)，表示旋转后的向量。
+        """
+        B = v.shape[0]
+        # 将每个向量转换为纯虚四元数形式： (v_x, v_y, v_z, 0)
+        v_quat = torch.cat([v, torch.zeros((B, 1), device=rl_device)], dim=1)
+        
+        # 计算 q 的共轭（单位四元数的逆）
+        q_inv = quaternion_conjugate(q)
+        
+        # 计算 q * v_quat
+        temp = quaternion_mul(q, v_quat)
+        # 再计算 (q * v_quat) * q_inv
+        rotated_v_quat = quaternion_mul(temp, q_inv)
+        
+        # 返回结果中的向量部分（前 3 个分量）
+        return rotated_v_quat[:, :3]
+
+    def relative_quaternion(q1, q2):
+        """
+        计算批量相对旋转四元数 q_rel，使得对于每个样本有： q2 = q_rel ⊗ q1.
+        
+        参数:
+            q1: numpy 数组，形状 (B, 4)，表示第一组四元数 [x, y, z, w].
+            q2: numpy 数组，形状 (B, 4)，表示第二组四元数 [x, y, z, w].
             
-            current_pos = env.endeffector_positions
-            current_ori = env.endeffector_orientations
-            target_pos = current_pos + delta * diff_pos
-            target_ori = current_ori + delta * diff_ori
+        返回:
+            q_rel: numpy 数组，形状 (B, 4)，表示相对旋转四元数 [x, y, z, w]。
+                注意 q_rel 与 -q_rel 表示相同的旋转。
+        """
+        # 计算 q1 的共轭，即 q1 的逆（单位四元数）
+        q1_conj = quaternion_conjugate(q1)
+        # 计算相对四元数： q_rel = q2 ⊗ q1_conj
+        q_rel = quaternion_mul(q2, q1_conj)
+        # 对每个样本归一化
+        norm = torch.norm(q_rel, dim=1, keepdim=True)
+        # 防止除 0
+        q_rel = q_rel / (norm + 1e-8)
+        return q_rel
 
-            current_distance = torch.norm(target_palm_positions_wrt_object - current_palms_positions_wrt_object)
+    def success():
+        success_tolerance = 0.11 #0.1
+        trans_scale = 9 #10
+        env.rot_dist = quat_diff_rad(env.object_orientations_wrt_palm, env._r_target_object_orientations_wrt_palm)
+        env.pos_dist = F.pairwise_distance(env.object_positions_wrt_palm, env._r_target_object_positions_wrt_palm)
+        env.fj_dist = F.pairwise_distance(
+            env.shadow_hand_dof_positions[:, env.shadow_digits_actuated_dof_indices],
+            env._r_target_shadow_digits_actuated_dof_positions,
+        )
+        
+        env.succ_rew = torch.where(
+            (torch.abs(env.rot_dist) <= success_tolerance) # 0.1
+            & (torch.abs(env.pos_dist) <= (success_tolerance / trans_scale)) # 0.01
+            & (torch.abs(env.fj_dist) <= 1.0)) #env.contact_eps)) # 0.2
+        cost = torch.abs(env.rot_dist) + torch.abs(env.pos_dist) + torch.abs(env.fj_dist)
+        success_idx = torch.ones(env.num_envs, device=rl_device)
+        success_idx[torch.abs(env.rot_dist) > success_tolerance] = 0
+        success_idx[torch.abs(env.pos_dist) > (success_tolerance / trans_scale)] = 0
+        success_idx[torch.abs(env.fj_dist) > 1.0] = 0
+        return env.succ_rew, cost, success_idx
 
-            # if i == 34:
-            #     target_pos[0, 2] -= 0.04
-            # target_pos[0, 0] += 0.001
-            target_pos[0, 1] += 0.0015
+    def record(record_data, obj_pos, obj_ori, succ_idx, cost, save=False):
+        if record_data["obj_pos"] is None:
+            record_data["obj_pos"] = obj_pos
+            record_data["obj_ori"] = obj_ori
+            record_data["succ_idx"] = succ_idx
+            record_data["cost"] = cost
+        else:
+            record_data["obj_pos"] = torch.cat([record_data["obj_pos"], obj_pos], dim=0)
+            record_data["obj_ori"] = torch.cat([record_data["obj_ori"], obj_ori], dim=0)
+            record_data["succ_idx"] = torch.cat([record_data["succ_idx"], succ_idx], dim=0)
+            record_data["cost"] = torch.cat([record_data["cost"], cost], dim=0)
+        print(obj_pos[:10])
+        print(obj_ori[:10])
+        print(succ_idx[:10])
+        # print(record_data["cost"])
+        print("record data size: ", record_data["obj_pos"].size())
+        # if save:
+        #     torch.save(record_data, "record_data.pth")
+        #     print("record data saved")
+        
+    def data_collection(env=env):
+        import numpy as np
+        import torch.nn.functional as F
+        from tasks.torch_utils import quat_diff_rad
+        record_data = {}
+        record_data["obj_pos"] = None
+        record_data["obj_ori"] = None
+        record_data["succ_idx"] = None
+        record_data["cost"] = None
 
+        object_original_orientation = torch.tensor([[0.0, 0.0, 0.0, 1.0]], device=rl_device).repeat(env.num_envs, 1)
 
-            for j in range(int(1 + max_ik_steps * current_distance / initial_distance)):
-                delta_joint_move = ik(
-                    env.j_eef,
-                    # current_pos,
-                    current_pos,
-                    current_ori,
-                    # target_pos,
-                    target_pos,
-                    target_ori,
+        import torch.nn as nn
+        class SimpleNet(nn.Module):
+            def __init__(self):
+                super(SimpleNet, self).__init__()
+                self.model = nn.Sequential(
+                    nn.Linear(7, 1024),  # 输入维度为 7 (3+4)
+                    nn.ReLU(),
+                    nn.Linear(1024, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 512),
+                    nn.ReLU(),
+                    nn.Linear(512, 256),
+                    nn.ReLU(),
+                    nn.Linear(256, 1)    # 输出 1 个数，后续使用 Sigmoid 进行二分类判断
                 )
-                delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
-                targets = env.shadow_hand_dof_positions.clone()
-                ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
-                env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
-                indices = torch.unique(
+
+            def forward(self, x):
+                return self.model(x)
+
+        model = SimpleNet()
+        model.load_state_dict(torch.load("/juno/u/suning/DexFunPreGrasp/mug_scorer.pth"))
+        model.to(rl_device)
+        model.eval()
+
+        num = 0
+        while True:
+            # env.reset_arm()
+            env.reset()
+            env_ids = torch.tensor([range(env.num_envs)], device=rl_device).squeeze(0)
+            palm_positions_wrt_eef = env.shadow_hand_center_positions - env.endeffector_positions
+            
+            # priviledge information
+            object_positions = env.object_root_positions
+            object_orientations = env.object_root_orientations
+            
+            output = model(torch.cat([object_positions, object_orientations], dim=1))
+            print(output)
+            output = torch.sigmoid(output)
+            output = output.squeeze(1)
+            output = output > 0.5
+            print("predict results: ", output)
+
+            target_palm_positions_wrt_object = env._r_target_palm_positions_wrt_object[:]
+            target_palm_orientations_wrt_object = env._r_target_palm_orientations_wrt_object[:]
+                    
+            object_rel_orientation = relative_quaternion(object_original_orientation, object_orientations)
+            target_palm_positions_wrt_object = rotate_vector_by_quaternion(target_palm_positions_wrt_object, object_rel_orientation)
+
+            current_palms_positions_wrt_object = env.palm_positions_wrt_object[:]
+            current_palms_orientations_wrt_object = env.palm_orientations_wrt_object[:]
+            
+            # target_hand_orientation = torch.tensor([[ 0.4857, -0.5795, -0.0983,  0.6470]], device='cuda:0')
+            target_hand_orientation = quaternion_mul(object_orientations, target_palm_orientations_wrt_object)        
+            relative_hand_end_wrt_start = relative_quaternion(env.shadow_hand_center_orientations, target_hand_orientation)
+            v = rotate_vector_by_quaternion(palm_positions_wrt_eef, relative_hand_end_wrt_start)
+            target_hand_positions = object_positions + target_palm_positions_wrt_object - v
+            
+            # robot initial pos [0.0200, 0.3000, 0.6000]
+            for i in range(150):
+                # print(f"moving step: {i}")
+                current_pos = env.endeffector_positions
+                # print(target_hand_positions, current_pos)
+                current_ori = env.endeffector_orientations
+                # print(target_hand_orientation, current_ori)
+                target_pos = current_pos + (target_hand_positions - current_pos) * 0.1
+                target_ori = slerp(current_ori, target_hand_orientation, 0.1)
+                
+                for j in range(1):
+                    delta_joint_move = ik(
+                        env.j_eef,
+                        # current_pose,
+                        current_pos,
+                        current_ori,
+                        # target_pose,
+                        target_pos,
+                        target_ori,
+                    )
+                    delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt
+                    norm = torch.norm(delta_joint_move, dim=1, keepdim=True)
+                    max_norm = 0.1
+                    delta_joint_move = torch.where(norm > max_norm, delta_joint_move / norm * max_norm, delta_joint_move)
+                    norm = torch.norm(delta_joint_move, dim=1, keepdim=True)
+                    targets = env.shadow_hand_dof_positions.clone()
+                    ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
+                    env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
+                    indices = torch.unique(
+                        torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
+                    )
+                    env.gym.set_dof_position_target_tensor_indexed(
+                        env.sim,
+                        gymtorch.unwrap_tensor(env.curr_targets_buffer),
+                        gymtorch.unwrap_tensor(indices),
+                        indices.shape[0],
+                    )
+
+                    # step physics and render each frame
+                    for _ in range(env.control_freq_inv):
+                        if env.force_render:
+                            env.render()
+                        env.gym.simulate(env.sim)
+
+                    env._refresh_sim_tensors()
+                    
+            target_shadow_hand_dof_positions = env._r_target_shadow_digits_actuated_dof_positions[:]
+            for i in range(100):
+                # print("grasping step: {}".format(i))
+                current_shadow_hand_dof_positions = env.shadow_hand_dof_positions[:, env.shadow_digits_actuated_dof_indices]
+                delta_hand_joint_move = (target_shadow_hand_dof_positions - current_shadow_hand_dof_positions) * 0.1
+                hand_targets = env.shadow_hand_dof_positions.clone()
+                ii, jj = torch.meshgrid(env_ids, env.shadow_digits_actuated_dof_indices, indexing="ij")
+                env.curr_targets[ii, jj] = hand_targets[ii, jj] + delta_hand_joint_move
+                hand_indices = torch.unique(
                     torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
                 )
                 env.gym.set_dof_position_target_tensor_indexed(
                     env.sim,
                     gymtorch.unwrap_tensor(env.curr_targets_buffer),
-                    gymtorch.unwrap_tensor(indices),
-                    indices.shape[0],
+                    gymtorch.unwrap_tensor(hand_indices),
+                    hand_indices.shape[0],
                 )
-
-                # step physics and render each frame
-                for _ in range(env.control_freq_inv):
-                    if env.force_render:
-                        env.render()
-                    env.gym.simulate(env.sim)
-
-                env._refresh_sim_tensors()
-
-        # dim=18
-        target_shadow_hand_dof_positions = env._r_target_shadow_digits_actuated_dof_positions[env_ids]
-        for i in range(100):
-            print("grasping step: {}".format(i))
-            current_shadow_hand_dof_positions = env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
-            delta_hand_joint_move = (target_shadow_hand_dof_positions - current_shadow_hand_dof_positions) * delta
-            hand_targets = env.shadow_hand_dof_positions.clone()
-            ii, jj = torch.meshgrid(env_ids, env.shadow_digits_actuated_dof_indices, indexing="ij")
-            env.curr_targets[ii, jj] = hand_targets[ii, jj] + delta_hand_joint_move
-            hand_indices = torch.unique(
-                torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-            )
-            env.gym.set_dof_position_target_tensor_indexed(
-                env.sim,
-                gymtorch.unwrap_tensor(env.curr_targets_buffer),
-                gymtorch.unwrap_tensor(hand_indices),
-                hand_indices.shape[0],
-            )
-            if env.force_render and i % 1 == 0:
-                env.render()
-            env.gym.simulate(env.sim)
-            env._refresh_sim_tensors()
-
-        close_dis = 3
-        env.close_dof_indices = torch.tensor([10, 11, 19, 20, 23, 24, 15, 16, 28, 29], device=rl_device)
-        # env.close_dof_indices = torch.tensor([10, 19, 23, 15, 28], device=rl_device)
-        for i in range(50):
-            if i < 30:
-                targets = env.shadow_hand_dof_positions.clone()
-                # print(env.close_dof_indices)
-                ii, jj = torch.meshgrid(env_ids, env.close_dof_indices, indexing="ij")
-                env.curr_targets[ii, jj] = targets[ii, jj] + close_dis / 30
-                indices = torch.unique(
-                    torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-                )
-                env.gym.set_dof_position_target_tensor_indexed(
-                    env.sim,
-                    gymtorch.unwrap_tensor(env.curr_targets_buffer),
-                    gymtorch.unwrap_tensor(indices),
-                    indices.shape[0],
-                )
-            if env.force_render and i % 1 == 0:
-                env.render()
-            env.gym.simulate(env.sim)
-            env._refresh_sim_tensors()
-
-
-
-        current_pos = env.endeffector_positions.clone()
-        target_pos = current_pos.clone()
-        target_pos[:, 2] += 0.3
-        for i in range(100):
-            print("lifting step: {}".format(i))
-            delta_joint_move = ik(
-                env.j_eef,
-                env.endeffector_positions,
-                env.endeffector_orientations,
-                target_pos,
-                env.endeffector_orientations,
-            )
-            delta_joint_move = delta_joint_move * env.dof_speed_scale * env.dt * 0.05
-
-            targets = env.shadow_hand_dof_positions.clone()
-            ii, jj = torch.meshgrid(env_ids, env.ur_actuated_dof_indices, indexing="ij")
-            env.curr_targets[ii, jj] = targets[ii, jj] + delta_joint_move
-            indices = torch.unique(
-                torch.cat([env.shadow_hand_indices]).flatten().to(torch.int32)
-            )
-            env.gym.set_dof_position_target_tensor_indexed(
-                env.sim,
-                gymtorch.unwrap_tensor(env.curr_targets_buffer),
-                gymtorch.unwrap_tensor(indices),
-                indices.shape[0],
-            )
-            # step physics and render each frame
-            for i in range(env.control_freq_inv):
-                if env.force_render:
+                if env.force_render and i % 1 == 0:
                     env.render()
                 env.gym.simulate(env.sim)
-            env._refresh_sim_tensors()
-
-
-
-    exit()
-
-    # while True:
-    #     action = torch.zeros((1, 26), device=rl_device)
-    #     obs, reward, done, info = env.step(action)
-    #     print(reward, done)
-    #     # import time
-    #     # time.sleep(0.5)
+                env._refresh_sim_tensors()
+            
+            # succ_rew, cost, success_idx = success()
+            # print("success_idx: ", success_idx)
+            save = num % 2 == 0
+            # record(record_data, object_positions, object_orientations, success_idx, cost, save)
+            num += 1
+       
+    # data_collection(env=env)
+        
     
-    # while True:
-    #     current_pos = env.endeffector_positions
-    #     # current_ori = env.endeffector_orientations
-    #     current_shadow_hand_dof = env.shadow_hand_dof_positions[env_ids, env.shadow_digits_actuated_dof_indices]
-    #     action = torch.zeros((1, 26), device=rl_device)
-    #     action[0, :6] = final_joint_move
-    #     action[0, 8:26] = (target_shadow_hand_dof_positions - current_shadow_hand_dof) * 0.1
-    #     obs, reward, done, info = env.step(action)
-    #     print(reward, done)
-    #     import time
-    #     time.sleep(0.5)
+    import wandb
+    wandb.init(
+        project="DexPreGrasp",     # 修改为你的 wandb 项目名
+        name="PPO_Evaluator",        # 实验运行名称，可选
+        config=cfg_train,                     # 记录超参数、配置等
+        reinit=True
+    )
     
-    exit()
-    
-
     """
     load agent
     """
@@ -486,6 +591,7 @@ if __name__ == "__main__":
         apply_reset=False,
         asymmetric=False,
         args=args,
+        wandb=wandb,
     )
 
     if args.model_dir != "":
