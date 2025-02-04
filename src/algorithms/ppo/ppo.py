@@ -76,7 +76,12 @@ class PPO:
         apply_reset=False,
         asymmetric=False,
         args=None,
+        wandb=None,
     ):
+        # self.action_num = 0
+        
+        
+        self.wandb = wandb
         self.args = args
         """PPO."""
         # PPO parameters
@@ -425,7 +430,7 @@ class PPO:
         torch.save(self.actor_critic.state_dict(), path)
 
     def get_action(self, current_obs, mode):
-        # Compute the action
+        # Compute the action        
         actions, grad, _ = self.compute_action(current_obs=current_obs, mode=mode)
         step_actions = self.process_actions(actions=actions.clone(), grad=grad.clone())
         return step_actions
@@ -703,6 +708,11 @@ class PPO:
                         while True:
                             # Compute the action
                             actions, grad, _ = self.compute_action(current_obs=current_obs, mode="eval")
+                            # print(actions.shape, self.action_num)
+                            # self.action_num += 1
+                            # if self.action_num % 300 > 50:
+                            #     actions[0, 3] -= 1
+                            
                             step_actions = self.process_actions(actions=actions.clone(), grad=grad.clone())
                             if self.vec_env.progress_buf[0] == 49 and save_state:
                                 self.eval_metrics["gf_state_final"].append(self.vec_env.get_states(gf_state=True))
@@ -882,6 +892,8 @@ class PPO:
                     if "gf" in self.vec_env.observation_info:
                         self.vec_env.action_gf = grad.clone()
                     next_obs, rews, dones, infos = self.vec_env.step(step_actions)
+                    # print("#######################")
+                    # print(rews, dones)
                     next_states = self.vec_env.get_state()
 
                     # Record the transition
@@ -952,6 +964,9 @@ class PPO:
         iteration_time = locs["collection_time"] + locs["learn_time"]
 
         ep_string = f""
+        # wandb
+        log_data = {}
+        
         if locs["ep_infos"]:
             for key in locs["ep_infos"][0]:
                 infotensor = torch.tensor([], device=self.device)
@@ -960,26 +975,39 @@ class PPO:
                 if key == "success_num":
                     value = torch.sum(infotensor)
                     self.writer.add_scalar("Episode/" + "total_success_num", value, locs["it"])
+                    # log_data["Episode/total_success_num"] = value
                     ep_string += f"""{f'Total episode {key}:':>{pad}} {value:.4f}\n"""
                 value = torch.mean(infotensor)
                 self.writer.add_scalar("Episode/" + key, value, locs["it"])
+                # log_data["Episode/" + key] = value
                 ep_string += f"""{f'Mean episode {key}:':>{pad}} {value:.4f}\n"""
         mean_std = self.actor_critic.log_std.exp().mean()
 
         self.writer.add_scalar("Loss/value_function", locs["mean_value_loss"], locs["it"])
         self.writer.add_scalar("Loss/surrogate", locs["mean_surrogate_loss"], locs["it"])
         self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
+        # log_data["Loss/value_function"] = locs["mean_value_loss"]
+        # log_data["Loss/surrogate"] = locs["mean_surrogate_loss"]
+        # log_data["Policy/mean_noise_std"] = mean_std.item()
+
         if len(locs["rewbuffer"]) > 0:
             self.writer.add_scalar("Train/mean_reward", statistics.mean(locs["rewbuffer"]), locs["it"])
             self.writer.add_scalar("Train/mean_episode_length", statistics.mean(locs["lenbuffer"]), locs["it"])
             self.writer.add_scalar("Train/mean_reward/time", statistics.mean(locs["rewbuffer"]), self.tot_time)
             self.writer.add_scalar("Train/mean_episode_length/time", statistics.mean(locs["lenbuffer"]), self.tot_time)
-
+            # log_data["Train/mean_reward"] = statistics.mean(locs["rewbuffer"])
+            # log_data["Train/mean_episode_length"] = statistics.mean(locs["lenbuffer"])
+            # log_data["Train/mean_reward/time"] = statistics.mean(locs["rewbuffer"])
+            # log_data["Train/mean_episode_length/time"] = statistics.mean(locs["lenbuffer"])
+            
         self.writer.add_scalar("Train2/mean_reward/step", locs["mean_reward"], locs["it"])
         self.writer.add_scalar("Train2/mean_episode_length/episode", locs["mean_trajectory_length"], locs["it"])
-
+        # log_data["Train2/mean_reward/step"] = locs["mean_reward"]
+        # log_data["Train2/mean_episode_length/episode"] = locs["mean_trajectory_length"]
+        
         fps = int(self.num_transitions_per_env * self.vec_env.num_envs / (locs["collection_time"] + locs["learn_time"]))
-
+        log_data["Computation FPS"] = fps
+        
         str = f" \033[1m Learning iteration {locs['it']}/{locs['num_learning_iterations']} \033[0m "
 
         if len(locs["rewbuffer"]) > 0:
@@ -996,9 +1024,16 @@ class PPO:
                 f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                 f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
             )
+            # log_data["Value function loss"] = locs["mean_value_loss"]
+            # log_data["Surrogate loss"] = locs["mean_surrogate_loss"]
+            # log_data["Mean action noise std"] = mean_std.item()
+            log_data["Mean reward"] = statistics.mean(locs['rewbuffer'])
+            log_data["Mean episode length"] = statistics.mean(locs['lenbuffer'])
+            # log_data["Mean reward/step"] = locs['mean_reward']
+            # log_data["Mean episode length/episode"] = locs['mean_trajectory_length']
         else:
             log_string = (
-                f"""{'#' * width}\n"""
+                f"""{'@' * width}\n"""
                 f"""{str.center(width, ' ')}\n\n"""
                 f"""{'Computation:':>{pad}} {fps:.0f} steps/s (collection: {locs[
                             'collection_time']:.3f}s, learning {locs['learn_time']:.3f}s)\n"""
@@ -1008,7 +1043,14 @@ class PPO:
                 f"""{'Mean reward/step:':>{pad}} {locs['mean_reward']:.2f}\n"""
                 f"""{'Mean episode length/episode:':>{pad}} {locs['mean_trajectory_length']:.2f}\n"""
             )
-
+            # log_data["Value function loss"] = locs["mean_value_loss"]
+            # log_data["Surrogate loss"] = locs["mean_surrogate_loss"]
+            # log_data["Mean action noise std"] = mean_std.item()
+            # log_data["Mean reward/step"] = locs["mean_reward"]
+            # log_data["Mean episode length/episode"] = locs["mean_trajectory_length"]
+        # log_data["Mean reward/step"] = locs['mean_reward']
+        # log_data["Mean episode length/episode"] = locs["mean_trajectory_length"]
+        
         log_string += ep_string
         log_string += (
             f"""{'-' * width}\n"""
@@ -1018,8 +1060,14 @@ class PPO:
             f"""{'ETA:':>{pad}} {self.tot_time / (locs['it'] + 1) * (
                                locs['num_learning_iterations'] - locs['it']):.1f}s\n"""
         )
-        print(log_string)
+        log_data["Total timesteps"] = self.tot_timesteps
+        log_data["Iteration time"] = iteration_time
+        log_data["Total time"] = self.tot_time
+        log_data["ETA"] = self.tot_time / (locs["it"] + 1) * (locs["num_learning_iterations"] - locs["it"])
 
+        print(log_string)
+        self.wandb.log(log_data, step=locs["it"])
+        
     def update(self):
         mean_value_loss = 0
         mean_surrogate_loss = 0
