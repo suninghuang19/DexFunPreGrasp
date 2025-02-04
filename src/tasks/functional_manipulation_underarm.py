@@ -308,6 +308,37 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         random.seed(seed)
         np.random.seed(seed)
 
+
+
+        import torch.nn as nn
+        class SimpleNet(nn.Module):
+            def __init__(self):
+                super(SimpleNet, self).__init__()
+                self.model = nn.Sequential(
+                    nn.Linear(7, 1024),  # 输入维度为 7 (3+4)
+                    nn.ReLU(),
+                    nn.Linear(1024, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 1024),
+                    nn.ReLU(),
+                    nn.Linear(1024, 512),
+                    nn.ReLU(),
+                    nn.Linear(512, 256),
+                    nn.ReLU(),
+                    nn.Linear(256, 1)    # 输出 1 个数，后续使用 Sigmoid 进行二分类判断
+                )
+
+            def forward(self, x):
+                return self.model(x)
+
+        self.model = SimpleNet()
+        self.model.load_state_dict(torch.load("/juno/u/suning/DexFunPreGrasp/mug_scorer.pth"))
+        self.model.to(rl_device)
+        self.model.eval()
+
+
+
+
         self.cfg = cfg
 
         self.method = self.cfg["env"]["method"]
@@ -588,8 +619,14 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             self.force_sensor_states = None
 
         forearm_index = self.gym.find_asset_rigid_body_index(self.gym_assets["current"]["robot"]["asset"], "rh_forearm")
+
+        # self.shadow_center_index = self.gym.find_asset_rigid_body_index(asset, self._shadow_hand_center_prim)
+        # print(forearm_index)
+        
         # jacobian entries corresponding to rh_forearm
         self.j_eef = self.jacobians[:, forearm_index - 1, :, :6]
+        # print(self.jacobians.shape)
+        # exit()
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -1822,6 +1859,8 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         pose.r = gymapi.Quat(0.0, 0.0, -np.sqrt(0.5), np.sqrt(0.5))
 
         self.shadow_center_index = self.gym.find_asset_rigid_body_index(asset, self._shadow_hand_center_prim)
+        # print("shadow_center_index", self.shadow_center_index)
+        # exit()
         self.shadow_mfknuckle_index = self.gym.find_asset_rigid_body_index(asset, self._shadow_hand_mfknuckle_prim)
         self.fingertip_indices = [
             self.gym.find_asset_rigid_body_index(asset, f"rh_{prim}") for prim in self._fingertips
@@ -3140,73 +3179,35 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         self.reset_buf[:] = torch.where(self.progress_buf >= self.max_episode_length - 1, 1, self.reset_buf)
         self.done_successes[self.reset_buf.nonzero(as_tuple=False).squeeze(-1)] = 0
 
-        if self.env_mode == "orn":
-            self.compute_ori_reward()
-        if self.env_mode == "relpose":
-            if "mutual" in self.reward_type:
-                self.compute_mutual_reward()
-            else:
-                self.compute_ori_reward()
-                if not test_rel:
-                    self.compute_pos_reward()
-        if self.env_mode == "relposecontact" or self.env_mode == "pgm":
-            if "mutual" in self.reward_type:
-                self.compute_mutual_reward()
-            else:
-                self.compute_ori_reward()
-                self.compute_pos_reward()
-                self.compute_contact_reward()
-
+        # use
+        self.compute_mutual_reward()
+        # use
         self.compute_succ_reward()
+        # use
         self.compute_action_reward(actions)
-        if "nominal" in self.reward_type:
-            self.compute_reorient_obj_reward()
-        if "ft2oc" in self.reward_type:
-            self.compute_fingertip_to_obj_center_reward()
-        if "similarity" in self.reward_type:
-            self.compute_similarity_reward()
-        if "manipen" in self.reward_type:
-            self.compute_manipulability_penalty()
-        if self.env_mode == "pgm" and "height" in self.reward_type:
-            self.compute_height_reward()
-            self.extras["obj_height"] = self.delta_obj_height.clone()
-            self.extras["height_rew"] = self.height_rew_scaled.clone()
 
         self.extras["rot_rew"] = self.rot_rew_scaled.clone()
         self.extras["succ_rew"] = self.succ_rew_scaled.clone()
         self.extras["action_penalty"] = self.action_penalty_scaled.clone()
-        if not test_rel and self.env_mode == "relpose":
-            self.extras["tran_rew"] = self.pos_rew_scaled.clone()
-        if self.env_mode == "relposecontact" or self.env_mode == "pgm":
-            self.extras["tran_rew"] = self.pos_rew_scaled.clone()
-            self.extras["contact_rew"] = self.contact_rew_scaled.clone()
-
+        self.extras["tran_rew"] = self.pos_rew_scaled.clone()
+        self.extras["contact_rew"] = self.contact_rew_scaled.clone()
         self.rew_buf[:] = (
-            self.rot_rew_scaled + self.succ_rew_scaled + self.action_penalty_scaled + self.time_step_penatly
+            self.succ_rew_scaled + self.action_penalty_scaled + self.time_step_penatly
         )
-        if not test_rel and self.env_mode == "relpose":
-            self.rew_buf[:] += self.pos_rew_scaled
-        if self.env_mode == "relposecontact" or self.env_mode == "pgm":
-            if "pclcontactonly" in self.reward_type or "pclcontactmatch" in self.reward_type:
-                self.rew_buf[:] = (
-                    self.contact_rew_scaled + self.succ_rew_scaled + self.action_penalty_scaled + self.time_step_penatly
-                )
-            else:
-                self.rew_buf[:] += self.pos_rew_scaled + self.contact_rew_scaled
+        self.rew_buf[:] += self.pos_rew_scaled
 
-            if self.env_mode == "pgm" and "height" in self.reward_type:
-                self.rew_buf[:] += self.height_rew_scaled
-            if "nominal" in self.reward_type:
-                self.rew_buf[:] += self.nominal_rew_scaled
-            if "ft2oc" in self.reward_type:
-                self.rew_buf[:] += self.ft2oc_rew_scaled
-            if "similarity" in self.reward_type:
-                self.rew_buf[:] += self.similarity_reward_scaled * (
-                    self.progress_buf % self.similarity_reward_freq == 0
-                )
-            if "manipen" in self.reward_type:
-                self.rew_buf[:] += self.manipulability_penalty_scaled
 
+        output = self.model(torch.cat([self.object_root_positions, self.object_root_orientations], dim=1))
+        # pregrasp_rew = torch.sigmoid(output).squeeze(-1).detach()
+        pregrasp_rew = output.squeeze(-1).detach()
+        pregrasp_rew = (torch.clamp(pregrasp_rew, -200, 10) + 200) / 210
+        
+        self.rew_buf[:] += pregrasp_rew
+        
+
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        print(self.rew_buf[:], self.succ_rew_scaled, self.action_penalty_scaled, self.time_step_penatly, self.pos_rew_scaled, pregrasp_rew * 2)
+        print(self.object_root_positions, self.object_root_orientations)
         self.compute_done()
 
     def reset(self, dones=None, first_time=False):
@@ -3423,16 +3424,24 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             )
         else:
             occupied_object_init_root_orientation = random_orientation(num_reset_envs, self.device)
-            # change no random now! handle is face to the robot
-            occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
-            num = 0#np.random.uniform(0, 1)
-            occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.0, np.sin(num), np.cos(num)], device=self.device)
-            # occupied_object_init_root_orientation[0] = torch.tensor([0.0, 0.707, 0, 0.707], device=self.device)
-            # occupied_object_init_root_orientation[0] = torch.tensor([-0.707, 0, 0, 0.707], device=self.device)
+            # # change no random now! handle is face to the robot
+            # if np.random.uniform() < 0.5:
+            #     # print("!"*30)
+            #     occupied_object_init_root_orientation = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(num_reset_envs, 1)
+            #     rand_num = torch.rand(num_reset_envs, device=self.device) * 3.14 - 1.57
+            #     occupied_object_init_root_orientation[:, 2] = torch.sin(rand_num)
+            #     occupied_object_init_root_orientation[:, 3] = torch.cos(rand_num)
+            #     # print(occupied_object_init_root_orientation)
+            # occupied_object_init_root_orientation = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(num_reset_envs, 1)
+            # rand_num = torch.rand(num_reset_envs, device=self.device) * 3.14 - 1.57
+            # occupied_object_init_root_orientation[:, 2] = torch.sin(rand_num)
+            # occupied_object_init_root_orientation[:, 3] = torch.cos(rand_num)
+            # print(occupied_object_init_root_orientation)
+            # occupied_object_init_root_orientation = torch.tensor([0.707, 0.0, 0.0, 0.707], device=self.device).repeat(num_reset_envs, 1)
 
-        # change
-        # nominal_mask = torch.rand(num_reset_envs, device=self.device) < self.nominal_env_ratio
-        # occupied_object_init_root_orientation[nominal_mask] = self._object_nominal_orientation.clone()
+        # occupied_object_init_root_orientation = torch.tensor([-0.3761, -0.5989, -0.6447, -0.2903], device=self.device).repeat(num_reset_envs, 1)
+
+        # tensor([[-0.1280,  0.0896,  0.3806]], device='cuda:0') tensor([[-0.3761, -0.5989, -0.6447, -0.2903]], device='cuda:0')
 
         # Compute statastics of object pointclouds
         pointclouds_wrt_world = quat_rotate(occupied_object_init_root_orientation[:, None, :], pointclouds)
@@ -3449,14 +3458,18 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         # Inject noise to object position (RESPONSIBLE FOR RANDOM OBJECT POSITION INITIALIZATION)
         _bound_x: torch.Tensor = self._table_x_length / 2 - obj_max_length
         # change no random now! mug is in the middle of the table
-        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device)*0 # + _bound_x
+        occupied_object_init_x = torch_rand_minmax(-_bound_x, _bound_x, num_reset_envs, device=self.device)*0.4 - 0.4*_bound_x# *0.4# 0.8#.5#  + _bound_x
         _bound_y: torch.Tensor = self._table_y_length / 2 - obj_max_length
-        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device)*0 # - _bound_y
+        occupied_object_init_y = torch_rand_minmax(-_bound_y, _bound_y, num_reset_envs, device=self.device)*0.4 - 0.4*_bound_y# *0.4# - _bound_y*0#  - _bound_y
         occupied_object_init_z = self._object_z - obj_min_z
         occupied_object_init_root_position = (
             torch.stack([occupied_object_init_x, occupied_object_init_y, occupied_object_init_z], dim=1)
             + self._table_pose_tensor
         )
+        # occupied_object_init_root_position = (
+        #     torch.stack([torch.tensor([-0.1280], device=self.device),  torch.tensor([0.0896], device=self.device),  torch.tensor([0.3806], device=self.device)], dim=1)
+        #     + self._table_pose_tensor
+        # )
 
         # Set object root states
         self.scene_object_root_positions[env_ids] = self.unused_object_init_root_positions
