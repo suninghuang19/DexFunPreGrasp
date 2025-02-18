@@ -1616,6 +1616,32 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             "num_rigid_shapes": num_rigid_shapes,
         }
 
+    def __define_table2(self) -> Dict[str, Any]:
+        asset_options = gymapi.AssetOptions()
+        asset_options.fix_base_link = True
+        asset_options.flip_visual_attachments = False
+        asset_options.collapse_fixed_joints = True
+        asset_options.disable_gravity = True
+        asset_options.thickness = 0.001
+
+        asset = self.gym.create_box(
+            self.sim, self._table_x_length, self._table_y_length/2, self._table_thickness, asset_options
+        )
+
+        num_rigid_bodies = self.gym.get_asset_rigid_body_count(asset)
+        num_rigid_shapes = self.gym.get_asset_rigid_shape_count(asset)
+
+        pose = gymapi.Transform()
+        pose.p = gymapi.Vec3(*self._table_pose) + gymapi.Vec3(0, 0, 0.05)
+
+        return {
+            "asset": asset,
+            "pose": pose,
+            "name": "table",
+            "num_rigid_bodies": num_rigid_bodies,
+            "num_rigid_shapes": num_rigid_shapes,
+        }
+
     def __define_contact_sensors(self, shadow_hand_asset: gymapi.Asset) -> None:
         """Configure the contact sensors.
 
@@ -2293,6 +2319,12 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         num_bodies += gym_assets["current"]["table"]["num_rigid_bodies"]
         num_shapes += gym_assets["current"]["table"]["num_rigid_shapes"]
 
+        # # ##########################
+        # num_bodies += gym_assets["current"]["table2"]["num_rigid_bodies"]
+        # num_shapes += gym_assets["current"]["table2"]["num_rigid_shapes"]
+        
+        
+
         if self.render_target:
             num_bodies += gym_assets["target"]["robot"]["num_rigid_bodies"]
             num_shapes += gym_assets["target"]["robot"]["num_rigid_shapes"]
@@ -2320,6 +2352,8 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         self.gym_assets["current"]["robot"] = self.__define_shadow_hand_with_arm()
         self.gym_assets["current"]["objects"] = self.__define_object()
         self.gym_assets["current"]["table"] = self.__define_table()
+        self.gym_assets["current"]["table2"] = self.__define_table2()
+
 
         if self.render_target:
             self.gym_assets["target"]["robot"] = self.__define_target_shadow_hand()
@@ -2386,6 +2420,10 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
             actor_index, actor_handle = self.__create_sim_actor(
                 env, self.gym_assets["current"]["table"], i, actor_handle=True
             )
+            # # ###################################
+            # actor_index, actor_handle = self.__create_sim_actor(
+            #     env, self.gym_assets["current"]["table2"], i, actor_handle=True
+            # )
             table_indices.append(actor_handle)
 
             if self.render_target:
@@ -2458,6 +2496,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
                     raise RuntimeError("end_aggregate failed")
 
             if self.aggregate_mode != 0:
+                # print(self.aggregate_tracker.aggregate_bodies, num_bodies)
                 assert self.aggregate_tracker.aggregate_bodies == num_bodies
                 assert self.aggregate_tracker.aggregate_shapes == num_shapes
 
@@ -2896,6 +2935,7 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
 
             self.rot_rew_scaled = rot_rew * rot_idx * self.part_reward_scale
             self.pos_rew_scaled = pos_rew * pos_idx * self.part_reward_scale * self.tran_reward_scale
+            print(pos_idx * self.part_reward_scale * self.tran_reward_scale, pos_rew)
             self.contact_rew_scaled = contact_rew * contact_idx * self.part_reward_scale
 
     def compute_succ_reward(self):
@@ -3204,10 +3244,18 @@ class ShadowHandFunctionalManipulationUnderarm(VecTask):
         
         self.rew_buf[:] += pregrasp_rew
         
+        # 0.385 -> 杯子立起来
+        # 找到所有self.object_root_positions[:, 2] 大于0.385但是小于0.39的env_id
+        index = torch.where((self.object_root_positions[:, 2] > 0.385) & (self.object_root_positions[:, 2] < 0.39))
+        vertical_rew = torch.zeros(self.num_envs, device=self.device)
+        vertical_rew[index] += 0.5
+        self.rew_buf[:] += vertical_rew
+        
 
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        print(self.rew_buf[:], self.succ_rew_scaled, self.action_penalty_scaled, self.time_step_penatly, self.pos_rew_scaled, pregrasp_rew * 2)
-        print(self.object_root_positions, self.object_root_orientations)
+        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        print(self.pos_rew_scaled, pregrasp_rew, vertical_rew, self.object_root_positions)
+        # print(self.rew_buf[:], self.succ_rew_scaled, self.action_penalty_scaled, self.time_step_penatly, self.pos_rew_scaled, pregrasp_rew * 2)
+        # print(self.object_root_positions, self.object_root_orientations)
         self.compute_done()
 
     def reset(self, dones=None, first_time=False):
